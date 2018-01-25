@@ -61,7 +61,7 @@ static int task_number = 0;
 extern const int nb_steps[FS_MAX];
 extern uint32_t dur_mins, dur_secs;
 static int fs_index = 0, wintogo_index = -1;
-extern BOOL force_large_fat32, enable_ntfs_compression, lock_drive, zero_drive, disable_file_indexing, usb_debug;
+extern BOOL force_large_fat32, enable_ntfs_compression, lock_drive, zero_drive, disable_file_indexing;
 uint8_t *grub2_buf = NULL;
 long grub2_len;
 static BOOL WritePBR(HANDLE hLogicalDrive);
@@ -200,16 +200,16 @@ static BOOLEAN __stdcall ChkdskCallback(FILE_SYSTEM_CALLBACK_COMMAND Command, DW
 	if (IS_ERROR(FormatStatus))
 		return FALSE;
 
-	switch(Command) {
+	switch (Command) {
 	case FCC_PROGRESS:
 	case FCC_CHECKDISK_PROGRESS:
 		percent = (DWORD*)pData;
 		PrintInfo(0, MSG_219, *percent);
 		break;
 	case FCC_DONE:
-		if(*(BOOLEAN*)pData == FALSE) {
-			uprintf("Error while checking disk.\n");
-			FormatStatus = ERROR_SEVERITY_ERROR|FAC(FACILITY_STORAGE)|ERROR_GEN_FAILURE;
+		if (*(BOOLEAN*)pData == FALSE) {
+			uprintf("Error while checking disk");
+			return FALSE;
 		}
 		break;
 	case FCC_UNKNOWN1A:
@@ -217,37 +217,32 @@ static BOOLEAN __stdcall ChkdskCallback(FILE_SYSTEM_CALLBACK_COMMAND Command, DW
 		// Silence these specific calls
 		break;
 	case FCC_INCOMPATIBLE_FILE_SYSTEM:
-		uprintf("Incompatible File System\n");
-		FormatStatus = ERROR_SEVERITY_ERROR|FAC(FACILITY_STORAGE)|APPERR(ERROR_INCOMPATIBLE_FS);
-		break;
+		uprintf("Incompatible File System");
+		return FALSE;
 	case FCC_ACCESS_DENIED:
-		uprintf("Access denied\n");
-		FormatStatus = ERROR_SEVERITY_ERROR|FAC(FACILITY_STORAGE)|ERROR_ACCESS_DENIED;
-		break;
+		uprintf("Access denied");
+		return FALSE;
 	case FCC_MEDIA_WRITE_PROTECTED:
-		uprintf("Media is write protected\n");
-		FormatStatus = ERROR_SEVERITY_ERROR|FAC(FACILITY_STORAGE)|ERROR_WRITE_PROTECT;
-		break;
+		uprintf("Media is write protected");
+		return FALSE;
 	case FCC_VOLUME_IN_USE:
-		uprintf("Volume is in use\n");
-		FormatStatus = ERROR_SEVERITY_ERROR|FAC(FACILITY_STORAGE)|ERROR_DEVICE_IN_USE;
-		break;
+		uprintf("Volume is in use");
+		return FALSE;
 	case FCC_OUTPUT:
 		OutputUTF8Message(((PTEXTOUTPUT)pData)->Output);
 		break;
 	case FCC_NO_MEDIA_IN_DRIVE:
-		uprintf("No media in drive\n");
-		FormatStatus = ERROR_SEVERITY_ERROR|FAC(FACILITY_STORAGE)|ERROR_NO_MEDIA_IN_DRIVE;
-		break;
+		uprintf("No media in drive");
+		return FALSE;
 	case FCC_READ_ONLY_MODE:
-		uprintf("Media has been switched to read-only - Leaving checkdisk\n");
+		uprintf("Media has been switched to read-only - Leaving checkdisk");
 		break;
 	default:
-		uprintf("ChkdskExCallback: received unhandled command %X\n", Command);
+		uprintf("ChkdskExCallback: received unhandled command %X", Command);
 		// Assume the command isn't an error
 		break;
 	}
-	return (!IS_ERROR(FormatStatus));
+	return TRUE;
 }
 
 /*
@@ -612,8 +607,8 @@ static BOOL FormatFAT32(DWORD DriveIndex)
 
 	format_percent = 0.0f;
 	for (i=0; i<(SystemAreaSize+BurstSize-1); i+=BurstSize) {
-		if (_GetTickCount64() > LastRefresh + MAX_REFRESH) {
-			LastRefresh = _GetTickCount64();
+		if (GetTickCount64() > LastRefresh + MAX_REFRESH) {
+			LastRefresh = GetTickCount64();
 			format_percent = (100.0f*i)/(1.0f*(SystemAreaSize+BurstSize));
 			PrintInfo(0, MSG_217, format_percent);
 			UpdateProgress(OP_FORMAT, format_percent);
@@ -717,8 +712,8 @@ static BOOL FormatDrive(DWORD DriveIndex)
 
 	// Check if Windows picked the UEFI:NTFS partition
 	// NB: No need to do this for Large FAT32, as this only applies to NTFS
-	safe_strcpy(path, MAX_PATH, VolumeName);
-	safe_strcat(path, MAX_PATH, "EFI\\Rufus\\ntfs_x64.efi");
+	static_strcpy(path, VolumeName);
+	static_strcat(path, "EFI\\Rufus\\ntfs_x64.efi");
 	if (PathFileExistsA(path)) {
 		uprintf("Windows selected the UEFI:NTFS partition for formatting - Retry needed", VolumeName);
 		FormatStatus = ERROR_SEVERITY_ERROR|FAC(FACILITY_STORAGE)|ERROR_RETRY;
@@ -1172,16 +1167,16 @@ static BOOL SetupWinPE(char drive_letter)
 
 	index = ((img_report.winpe&WINPE_I386) == WINPE_I386)?0:1;
 	// Allow other values than harddisk 1, as per user choice for disk ID
-	safe_sprintf(setupsrcdev, sizeof(setupsrcdev),
-		"SetupSourceDevice = \"\\device\\harddisk%d\\partition1\"", ComboBox_GetCurSel(hDiskID));
+	static_sprintf(setupsrcdev, "SetupSourceDevice = \"\\device\\harddisk%d\\partition1\"",
+		ComboBox_GetCurSel(hDiskID));
 	// Copy of ntdetect.com in root
-	safe_sprintf(src, sizeof(src), "%c:\\%s\\ntdetect.com", drive_letter, basedir[index]);
-	safe_sprintf(dst, sizeof(dst), "%c:\\ntdetect.com", drive_letter);
+	static_sprintf(src, "%c:\\%s\\ntdetect.com", drive_letter, basedir[index]);
+	static_sprintf(dst, "%c:\\ntdetect.com", drive_letter);
 	CopyFileA(src, dst, TRUE);
 	if (!img_report.uses_minint) {
 		// Create a copy of txtsetup.sif, as we want to keep the i386 files unmodified
-		safe_sprintf(src, sizeof(src), "%c:\\%s\\txtsetup.sif", drive_letter, basedir[index]);
-		safe_sprintf(dst, sizeof(dst), "%c:\\txtsetup.sif", drive_letter);
+		static_sprintf(src, "%c:\\%s\\txtsetup.sif", drive_letter, basedir[index]);
+		static_sprintf(dst, "%c:\\txtsetup.sif", drive_letter);
 		if (!CopyFileA(src, dst, TRUE)) {
 			uprintf("Did not copy %s as %s: %s\n", src, dst, WindowsErrorString());
 		}
@@ -1192,8 +1187,8 @@ static BOOL SetupWinPE(char drive_letter)
 		uprintf("Successfully added '%s' to %s\n", setupsrcdev, dst);
 	}
 
-	safe_sprintf(src, sizeof(src), "%c:\\%s\\setupldr.bin", drive_letter,  basedir[index]);
-	safe_sprintf(dst, sizeof(dst), "%c:\\BOOTMGR", drive_letter);
+	static_sprintf(src, "%c:\\%s\\setupldr.bin", drive_letter,  basedir[index]);
+	static_sprintf(dst, "%c:\\BOOTMGR", drive_letter);
 	if (!CopyFileA(src, dst, TRUE)) {
 		uprintf("Did not copy %s as %s: %s\n", src, dst, WindowsErrorString());
 	}
@@ -1286,12 +1281,14 @@ out:
 
 // Checks which versions of Windows are available in an install.wim image
 // to set our extraction index. Asks the user to select one if needed.
-BOOL SetWinToGoIndex(void)
+// Returns -2 on user cancel, -1 on other error, >=0 on success.
+int SetWinToGoIndex(void)
 {
 	char *mounted_iso, *build, image[128];
 	char tmp_path[MAX_PATH] = "", xml_file[MAX_PATH] = "";
 	StrArray version_name, version_index;
 	int i, build_nr = 0;
+	BOOL bNonStandard = FALSE;
 
 	// Sanity checks
 	wintogo_index = -1;
@@ -1311,8 +1308,8 @@ BOOL SetWinToGoIndex(void)
 	if ((GetTempPathU(sizeof(tmp_path), tmp_path) == 0)
 		|| (GetTempFileNameU(tmp_path, APPLICATION_NAME, 0, xml_file) == 0)
 		|| (xml_file[0] == 0)) {
-		// Last ditch effort to get a loc file - just extract it to the current directory
-		safe_strcpy(xml_file, sizeof(xml_file), ".\\RufVXml.tmp");
+		// Last ditch effort to get a tmp file - just extract it to the current directory
+		static_strcpy(xml_file, ".\\RufVXml.tmp");
 	}
 	// GetTempFileName() may leave a file behind
 	DeleteFileU(xml_file);
@@ -1325,19 +1322,35 @@ BOOL SetWinToGoIndex(void)
 
 	StrArrayCreate(&version_name, 16);
 	StrArrayCreate(&version_index, 16);
-	for (i = 0; (StrArrayAdd(&version_name, get_token_data_file_indexed("DISPLAYNAME", xml_file, i + 1), FALSE) >= 0) &&
-		(StrArrayAdd(&version_index, get_token_data_file_indexed("IMAGE INDEX", xml_file, i + 1), FALSE) >= 0); i++);
+	for (i = 0; StrArrayAdd(&version_index, get_token_data_file_indexed("IMAGE INDEX", xml_file, i + 1), FALSE) >= 0; i++) {
+		// Some people are apparently creating *unofficial* Windows ISOs that don't have DISPLAYNAME elements.
+		// If we are parsing such an ISO, try to fall back to using DESCRIPTION. Of course, since we don't use
+		// a formal XML parser, if an ISO mixes entries with both DISPLAYNAME and DESCRIPTION and others with
+		// only DESCRIPTION, the version names we report will be wrong.
+		// But hey, there's only so far I'm willing to go to help people who, not content to have demonstrated
+		// their utter ignorance on development matters, are also trying to lecture experienced developers
+		// about specific "noob mistakes"... that don't exist in the code they are trying to criticize.
+		if (StrArrayAdd(&version_name, get_token_data_file_indexed("DISPLAYNAME", xml_file, i + 1), FALSE) < 0) {
+			bNonStandard = TRUE;
+			if (StrArrayAdd(&version_name, get_token_data_file_indexed("DESCRIPTION", xml_file, i + 1), FALSE) < 0) {
+				uprintf("Warning: Could not find a description for image index %d", i + 1);
+				StrArrayAdd(&version_name, "Unknown Windows Version", TRUE);
+			}
+		}
+	}
+	if (bNonStandard)
+		uprintf("Warning: Nonstandard Windows image (missing <DISPLAYNAME> entries)");
 
 	if (i > 1)
-		i = Selection(lmprintf(MSG_291), lmprintf(MSG_292), version_name.String, i);
+		i = SelectionDialog(lmprintf(MSG_291), lmprintf(MSG_292), version_name.String, i);
 	if (i < 0) {
-		wintogo_index = -1;
+		wintogo_index = -2;	// Cancelled by the user
 	} else if (i == 0) {
 		wintogo_index = 1;
 	} else {
 		wintogo_index = atoi(version_index.String[i - 1]);
 	}
-	if (i >= 0) {
+	if (i > 0) {
 		// Get the build version
 		build = get_token_data_file_indexed("BUILD", xml_file, i);
 		if (build != NULL)
@@ -1349,7 +1362,7 @@ BOOL SetWinToGoIndex(void)
 		if ((build_nr < 15000) && (SelectedDrive.MediaType != FixedMedia)) {
 			if (MessageBoxExU(hMainDialog, lmprintf(MSG_098), lmprintf(MSG_190),
 				MB_YESNO | MB_ICONWARNING | MB_IS_RTL, selected_langid) != IDYES)
-				wintogo_index = -1;
+				wintogo_index = -2;
 		}
 	}
 	StrArrayDestroy(&version_name);
@@ -1358,7 +1371,7 @@ BOOL SetWinToGoIndex(void)
 out:
 	DeleteFileU(xml_file);
 	UnMountISO();
-	return (wintogo_index >= 0);
+	return wintogo_index;
 }
 
 // http://technet.microsoft.com/en-ie/library/jj721578.aspx
@@ -1446,12 +1459,12 @@ static BOOL SetupWinToGo(const char* drive_name, BOOL use_ms_efi)
 	// Also, since Rufus should (usually) be running as a 32 bit app, on 64 bit systems, we need to use
 	// 'C:\Windows\Sysnative' and not 'C:\Windows\System32' to invoke bcdboot, as 'C:\Windows\System32'
 	// will get converted to 'C:\Windows\SysWOW64' behind the scenes, and ther is no bcdboot.exe there.
-	uprintf("Enabling boot...");
 	static_sprintf(cmd, "%s\\bcdboot.exe %s\\Windows /v /f ALL /s %s", sysnative_dir,
 		drive_name, (use_ms_efi)?ms_efi:drive_name);
+	uprintf("Enabling boot using command '%s'", cmd);
 	if (RunCommand(cmd, sysnative_dir, usb_debug) != 0) {
 		// Try to continue... but report a failure
-		uprintf("Failed to enable boot using command '%s'", cmd);
+		uprintf("Failed to enable boot");
 		FormatStatus = ERROR_SEVERITY_ERROR | FAC(FACILITY_STORAGE) | APPERR(ERROR_ISO_EXTRACT);
 	}
 
@@ -1503,9 +1516,9 @@ static BOOL SetupWinToGo(const char* drive_name, BOOL use_ms_efi)
 
 static void update_progress(const uint64_t processed_bytes)
 {
-	if (_GetTickCount64() > LastRefresh + MAX_REFRESH) {
-		LastRefresh = _GetTickCount64();
-		format_percent = (100.0f*processed_bytes)/(1.0f*img_report.projected_size);
+	if (GetTickCount64() > LastRefresh + MAX_REFRESH) {
+		LastRefresh = GetTickCount64();
+		format_percent = (100.0f*processed_bytes)/(1.0f*img_report.image_size);
 		PrintInfo(0, MSG_261, format_percent);
 		UpdateProgress(OP_FORMAT, format_percent);
 	}
@@ -1517,7 +1530,8 @@ static BOOL WriteDrive(HANDLE hPhysicalDrive, HANDLE hSourceImage)
 	BOOL s, ret = FALSE;
 	LARGE_INTEGER li;
 	DWORD rSize, wSize, BufSize;
-	uint64_t wb, target_size = hSourceImage?img_report.projected_size:SelectedDrive.DiskSize;
+	uint64_t wb, target_size = hSourceImage?img_report.image_size:SelectedDrive.DiskSize;
+	int64_t bled_ret;
 	uint8_t *buffer = NULL;
 	int i;
 
@@ -1528,10 +1542,16 @@ static BOOL WriteDrive(HANDLE hPhysicalDrive, HANDLE hSourceImage)
 	LastRefresh = 0;
 
 	if (img_report.compression_type != BLED_COMPRESSION_NONE) {
-		uprintf("Writing Compressed Image...");
+		uprintf("Writing compressed image...");
 		bled_init(_uprintf, update_progress, &FormatStatus);
-		bled_uncompress_with_handles(hSourceImage, hPhysicalDrive, img_report.compression_type);
+		bled_ret = bled_uncompress_with_handles(hSourceImage, hPhysicalDrive, img_report.compression_type);
 		bled_exit();
+		if ((bled_ret < 0) && (SCODE_CODE(FormatStatus) != ERROR_CANCELLED)) {
+			// Unfortunately, different compression backends return different negative error codes
+			uprintf("Could not write compressed image: %" PRIi64, bled_ret);
+			FormatStatus = ERROR_SEVERITY_ERROR | FAC(FACILITY_STORAGE) | ERROR_WRITE_FAULT;
+			goto out;
+		}
 	} else {
 		uprintf(hSourceImage?"Writing Image...":"Zeroing drive...");
 		// Our buffer size must be a multiple of the sector size and *ALIGNED* to the sector size
@@ -1554,8 +1574,8 @@ static BOOL WriteDrive(HANDLE hPhysicalDrive, HANDLE hSourceImage)
 		// will be as fast, if not faster, than whatever async scheme you can come up with.
 		rSize = BufSize;
 		for (wb = 0, wSize = 0; wb < (uint64_t)SelectedDrive.DiskSize; wb += wSize) {
-			if (_GetTickCount64() > LastRefresh + MAX_REFRESH) {
-				LastRefresh = _GetTickCount64();
+			if (GetTickCount64() > LastRefresh + MAX_REFRESH) {
+				LastRefresh = GetTickCount64();
 				format_percent = (100.0f*wb) / (1.0f*target_size);
 				PrintInfo(0, hSourceImage?MSG_261:MSG_286, format_percent);
 				UpdateProgress(OP_FORMAT, format_percent);
@@ -1641,11 +1661,6 @@ DWORD WINAPI FormatThread(void* param)
 	char kolibri_dst[] = "?:\\MTLD_F32";
 	char grub4dos_dst[] = "?:\\grldr";
 
-	PF_TYPE_DECL(WINAPI, LANGID, GetThreadUILanguage, (void));
-	PF_TYPE_DECL(WINAPI, LANGID, SetThreadUILanguage, (LANGID));
-	PF_INIT(GetThreadUILanguage, Kernel32);
-	PF_INIT(SetThreadUILanguage, Kernel32);
-
 	fs = (int)ComboBox_GetItemData(hFileSystem, ComboBox_GetCurSel(hFileSystem));
 	bt = (int)ComboBox_GetItemData(hBootType, ComboBox_GetCurSel(hBootType));
 	pt = GETPARTTYPE((int)ComboBox_GetItemData(hPartitionScheme, ComboBox_GetCurSel(hPartitionScheme)));
@@ -1667,13 +1682,13 @@ DWORD WINAPI FormatThread(void* param)
 		extra_partitions = XP_COMPAT;
 
 	PrintInfoDebug(0, MSG_225);
-	hPhysicalDrive = GetPhysicalHandle(DriveIndex, lock_drive, TRUE);
+	hPhysicalDrive = GetPhysicalHandle(DriveIndex, lock_drive, TRUE, !lock_drive);
 	if (hPhysicalDrive == INVALID_HANDLE_VALUE) {
 		FormatStatus = ERROR_SEVERITY_ERROR|FAC(FACILITY_STORAGE)|ERROR_OPEN_FAILED;
 		goto out;
 	}
 
-	// At this stage with have both a handle and a lock to the physical drive...
+	// At this stage we should have both a handle and a lock to the physical drive...
 	if (!GetDriveLetters(DriveIndex, drive_letters)) {
 		uprintf("Failed to get a drive letter\n");
 		FormatStatus = ERROR_SEVERITY_ERROR|FAC(FACILITY_STORAGE)|APPERR(ERROR_CANT_ASSIGN_LETTER);
@@ -1709,7 +1724,7 @@ DWORD WINAPI FormatThread(void* param)
 	uprintf("Will use '%c:' as volume mountpoint\n", drive_name[0]);
 
 	// ...but we need a lock to the logical drive to be able to write anything to it
-	hLogicalVolume = GetLogicalHandle(DriveIndex, TRUE, FALSE, FALSE);
+	hLogicalVolume = GetLogicalHandle(DriveIndex, TRUE, FALSE, !lock_drive);
 	if (hLogicalVolume == INVALID_HANDLE_VALUE) {
 		uprintf("Could not lock volume\n");
 		FormatStatus = ERROR_SEVERITY_ERROR|FAC(FACILITY_STORAGE)|ERROR_OPEN_FAILED;
@@ -1731,10 +1746,6 @@ DWORD WINAPI FormatThread(void* param)
 		UpdateProgress(OP_ANALYZE_MBR, -1.0f);
 	}
 
-	// Yet another half-workaround needed for XP...
-	if (nWindowsVersion <= WINDOWS_XP)
-		InitializeDisk(hPhysicalDrive);
-
 	if (zero_drive) {
 		WriteDrive(hPhysicalDrive, NULL);
 		goto out;
@@ -1744,7 +1755,7 @@ DWORD WINAPI FormatThread(void* param)
 	// Note, Microsoft's way of cleaning partitions (IOCTL_DISK_CREATE_DISK, which is what we apply
 	// in InitializeDisk) is *NOT ENOUGH* to reset a disk and can render it inoperable for partitioning
 	// or formatting under Windows. See https://github.com/pbatard/rufus/issues/759 for details.
-	if ((nWindowsVersion > WINDOWS_XP) && ((!IsChecked(IDC_BOOT)) || (bt != BT_IMG)))  {
+	if ((!IsChecked(IDC_BOOT)) || (bt != BT_IMG))  {
 		if ((!ClearMBRGPT(hPhysicalDrive, SelectedDrive.DiskSize, SelectedDrive.SectorSize, use_large_fat32)) ||
 			(!InitializeDisk(hPhysicalDrive))) {
 			uprintf("Could not reset partitions\n");
@@ -1758,7 +1769,7 @@ DWORD WINAPI FormatThread(void* param)
 			// create a log file for bad blocks report. Since %USERPROFILE% may
 			// have localized characters, we use the UTF-8 API.
 			userdir = getenvU("USERPROFILE");
-			safe_strcpy(logfile, MAX_PATH, userdir);
+			static_strcpy(logfile, userdir);
 			safe_free(userdir);
 			GetLocalTime(&lt);
 			safe_sprintf(&logfile[strlen(logfile)], sizeof(logfile)-strlen(logfile)-1,
@@ -1780,7 +1791,7 @@ DWORD WINAPI FormatThread(void* param)
 					FormatStatus = ERROR_SEVERITY_ERROR|FAC(FACILITY_STORAGE)|APPERR(ERROR_BADBLOCKS_FAILURE);
 				ClearMBRGPT(hPhysicalDrive, SelectedDrive.DiskSize, SelectedDrive.SectorSize, FALSE);
 				fclose(log_fd);
-				_unlink(logfile);
+				_unlinkU(logfile);
 				goto out;
 			}
 			uprintf("Bad Blocks: Check completed, %d bad block%s found. (%d/%d/%d errors)\n",
@@ -1790,14 +1801,7 @@ DWORD WINAPI FormatThread(void* param)
 			if (report.bb_count) {
 				bb_msg = lmprintf(MSG_011, report.bb_count, report.num_read_errors, report.num_write_errors,
 					report.num_corruption_errors);
-#if defined(__clang__)
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wformat-security"
-#endif
 				fprintf(log_fd, bb_msg);
-#if defined(__clang__)
-#pragma clang diagnostic pop
-#endif
 				GetLocalTime(&lt);
 				fprintf(log_fd, APPLICATION_NAME " bad blocks check ended on: %04d.%02d.%02d %02d:%02d:%02d\n",
 				lt.wYear, lt.wMonth, lt.wDay, lt.wHour, lt.wMinute, lt.wSecond);
@@ -1807,7 +1811,7 @@ DWORD WINAPI FormatThread(void* param)
 			} else {
 				// We didn't get any errors => delete the log file
 				fclose(log_fd);
-				_unlink(logfile);
+				_unlinkU(logfile);
 			}
 		} while (r == IDRETRY);
 		if (r == IDABORT) {
@@ -2029,7 +2033,7 @@ DWORD WINAPI FormatThread(void* param)
 					efi_dst[0] = drive_name[0];
 					efi_dst[sizeof(efi_dst) - sizeof("\\bootx64.efi")] = 0;
 					if (!CreateDirectoryA(efi_dst, 0)) {
-						uprintf("Could not create directory '%s': %s\n", WindowsErrorString());
+						uprintf("Could not create directory '%s': %s\n", efi_dst, WindowsErrorString());
 						FormatStatus = ERROR_SEVERITY_ERROR|FAC(FACILITY_STORAGE)|APPERR(ERROR_CANT_PATCH);
 					} else {
 						efi_dst[sizeof(efi_dst) - sizeof("\\bootx64.efi")] = '\\';
@@ -2055,9 +2059,9 @@ DWORD WINAPI FormatThread(void* param)
 		// NTFS fixup (WinPE/AIK images don't seem to boot without an extra checkdisk)
 		if ((bt == BT_ISO) && (fs == FS_NTFS)) {
 			// Try to ensure that all messages from Checkdisk will be in English
-			if ((pfGetThreadUILanguage != NULL) && (PRIMARYLANGID(pfGetThreadUILanguage()) != LANG_ENGLISH)) {
-				pfSetThreadUILanguage(MAKELANGID(LANG_ENGLISH, SUBLANG_ENGLISH_US));
-				if (PRIMARYLANGID(pfGetThreadUILanguage()) != LANG_ENGLISH)
+			if (PRIMARYLANGID(GetThreadUILanguage()) != LANG_ENGLISH) {
+				SetThreadUILanguage(MAKELANGID(LANG_ENGLISH, SUBLANG_ENGLISH_US));
+				if (PRIMARYLANGID(GetThreadUILanguage()) != LANG_ENGLISH)
 					uprintf("Note: CheckDisk messages may be localized");
 			}
 			CheckDisk(drive_name[0]);
@@ -2100,7 +2104,7 @@ DWORD WINAPI SaveImageThread(void* param)
 	LastRefresh = 0;
 	switch (img_save->Type) {
 	case IMG_SAVE_TYPE_VHD:
-		hPhysicalDrive = GetPhysicalHandle(img_save->DeviceNum, TRUE, FALSE);
+		hPhysicalDrive = GetPhysicalHandle(img_save->DeviceNum, TRUE, FALSE, FALSE);
 		break;
 	case IMG_SAVE_TYPE_ISO:
 		hPhysicalDrive = CreateFileA(img_save->DevicePath, GENERIC_READ, FILE_SHARE_READ,
@@ -2156,8 +2160,8 @@ DWORD WINAPI SaveImageThread(void* param)
 		}
 		if (rSize == 0)
 			break;
-		if (_GetTickCount64() > LastRefresh + MAX_REFRESH) {
-			LastRefresh = _GetTickCount64();
+		if (GetTickCount64() > LastRefresh + MAX_REFRESH) {
+			LastRefresh = GetTickCount64();
 			format_percent = (100.0f*wb)/(1.0f*img_save->DeviceSize);
 			PrintInfo(0, MSG_261, format_percent);
 			UpdateProgress(OP_FORMAT, format_percent);

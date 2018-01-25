@@ -1,7 +1,7 @@
 /*
  * Rufus: The Reliable USB Formatting Utility
  * Standard Windows function calls
- * Copyright © 2013-2016 Pete Batard <pete@akeo.ie>
+ * Copyright © 2013-2017 Pete Batard <pete@akeo.ie>
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -32,12 +32,9 @@
 
 #include "settings.h"
 
-extern BOOL usb_debug;	// For uuprintf
 int  nWindowsVersion = WINDOWS_UNDEFINED;
 int  nWindowsBuildNumber = -1;
 char WindowsVersionStr[128] = "Windows ";
-
-PF_TYPE_DECL(WINAPI, int, LCIDToLocaleName, (LCID, LPWSTR, int, DWORD));
 
 /*
  * Hash table functions - modified From glibc 2.3.2:
@@ -236,7 +233,7 @@ void GetWindowsVersion(void)
 	BOOL ws;
 
 	nWindowsVersion = WINDOWS_UNDEFINED;
-	safe_strcpy(WindowsVersionStr, sizeof(WindowsVersionStr), "Windows Undefined");
+	static_strcpy(WindowsVersionStr, "Windows Undefined");
 
 	memset(&vi, 0, sizeof(vi));
 	vi.dwOSVersionInfoSize = sizeof(vi);
@@ -285,20 +282,20 @@ void GetWindowsVersion(void)
 			switch (nWindowsVersion) {
 			case 0x51: w = "XP";
 				break;
-			case 0x52: w = (!GetSystemMetrics(89)?"2003":"2003_R2");
+			case 0x52: w = (!GetSystemMetrics(89)?"Server 2003":"Server 2003_R2");
 				break;
-			case 0x60: w = (ws?"Vista":"2008");
+			case 0x60: w = (ws?"Vista":"Server 2008");
 				break;
-			case 0x61: w = (ws?"7":"2008_R2");
+			case 0x61: w = (ws?"7":"Server 2008_R2");
 				break;
-			case 0x62: w = (ws?"8":"2012");
+			case 0x62: w = (ws?"8":"Server 2012");
 				break;
-			case 0x63: w = (ws?"8.1":"2012_R2");
+			case 0x63: w = (ws?"8.1":"Server 2012_R2");
 				break;
 			case 0x64: w = (ws?"10 (Preview 1)":"Server 10 (Preview 1)");
 				break;
 			// Starting with Windows 10 Preview 2, the major is the same as the public-facing version
-			case 0xA0: w = (ws?"10":"Server 10");
+			case 0xA0: w = (ws?"10":"Server 2016");
 				break;
 			default:
 				if (nWindowsVersion < 0x51)
@@ -330,9 +327,9 @@ void GetWindowsVersion(void)
 		GetRegistryKeyStr(REGKEY_HKLM, "Microsoft\\Windows NT\\CurrentVersion\\CurrentBuildNumber", build_number, sizeof(build_number));
 		if (build_number[0] != 0) {
 			nWindowsBuildNumber = atoi(build_number);	// Keep a global copy
-			safe_strcat(WindowsVersionStr, sizeof(WindowsVersionStr), " (Build ");
-			safe_strcat(WindowsVersionStr, sizeof(WindowsVersionStr), build_number);
-			safe_strcat(WindowsVersionStr, sizeof(WindowsVersionStr), ")");
+			static_strcat(WindowsVersionStr, " (Build ");
+			static_strcat(WindowsVersionStr, build_number);
+			static_strcat(WindowsVersionStr, ")");
 		}
 	}
 
@@ -635,8 +632,10 @@ BOOL IsFontAvailable(const char* font_name) {
 	LOGFONTA lf = { 0 };
 	HDC hDC = GetDC(hMainDialog);
 
-	if (font_name == NULL)
+	if (font_name == NULL) {
+		ReleaseDC(hMainDialog, hDC);
 		return FALSE;
+	}
 
 	lf.lfCharSet = DEFAULT_CHARSET;
 	safe_strcpy(lf.lfFaceName, LF_FACESIZE, font_name);
@@ -717,19 +716,19 @@ DWORD WINAPI SetLGPThread(LPVOID param)
 	// We need an IGroupPolicyObject instance to set a Local Group Policy
 	hr = CoCreateInstance(&my_CLSID_GroupPolicyObject, NULL, CLSCTX_INPROC_SERVER, &my_IID_IGroupPolicyObject, (LPVOID*)&pLGPO);
 	if (FAILED(hr)) {
-		uprintf("SetLGP: CoCreateInstance failed; hr = %x\n", hr);
+		ubprintf("SetLGP: CoCreateInstance failed; hr = %lx", hr);
 		goto error;
 	}
 
 	hr = pLGPO->lpVtbl->OpenLocalMachineGPO(pLGPO, GPO_OPEN_LOAD_REGISTRY);
 	if (FAILED(hr)) {
-		uprintf("SetLGP: OpenLocalMachineGPO failed - error %x\n", hr);
+		ubprintf("SetLGP: OpenLocalMachineGPO failed - error %lx", hr);
 		goto error;
 	}
 
 	hr = pLGPO->lpVtbl->GetRegistryKey(pLGPO, GPO_SECTION_MACHINE, &path_key);
 	if (FAILED(hr)) {
-		uprintf("SetLGP: GetRegistryKey failed - error %x\n", hr);
+		ubprintf("SetLGP: GetRegistryKey failed - error %lx", hr);
 		goto error;
 	}
 
@@ -737,7 +736,7 @@ DWORD WINAPI SetLGPThread(LPVOID param)
 	r = RegCreateKeyExA(path_key, p->szPath, 0, NULL, 0, KEY_SET_VALUE | KEY_QUERY_VALUE,
 		NULL, &policy_key, &disp);
 	if (r != ERROR_SUCCESS) {
-		uprintf("SetLGP: Failed to open LGPO path %s - error %x\n", p->szPath, hr);
+		ubprintf("SetLGP: Failed to open LGPO path %s - error %lx", p->szPath, hr);
 		policy_key = NULL;
 		goto error;
 	}
@@ -751,7 +750,7 @@ DWORD WINAPI SetLGPThread(LPVOID param)
 			// The Key exists but not its value, which is OK
 			*(p->bExistingKey) = FALSE;
 		} else if (r != ERROR_SUCCESS) {
-			uprintf("SetLGP: Failed to read original %s policy value - error %x\n", p->szPolicy, r);
+			ubprintf("SetLGP: Failed to read original %s policy value - error %lx", p->szPolicy, r);
 		}
 	}
 
@@ -762,7 +761,7 @@ DWORD WINAPI SetLGPThread(LPVOID param)
 		r = RegDeleteValueA(policy_key, p->szPolicy);
 	}
 	if (r != ERROR_SUCCESS) {
-		uprintf("SetLGP: RegSetValueEx / RegDeleteValue failed - error %x\n", r);
+		ubprintf("SetLGP: RegSetValueEx / RegDeleteValue failed - error %lx", r);
 	}
 	RegCloseKey(policy_key);
 	policy_key = NULL;
@@ -770,13 +769,13 @@ DWORD WINAPI SetLGPThread(LPVOID param)
 	// Apply policy
 	hr = pLGPO->lpVtbl->Save(pLGPO, TRUE, (p->bRestore)?FALSE:TRUE, &ext_guid, &snap_guid);
 	if (hr != S_OK) {
-		uprintf("SetLGP: Unable to apply %s policy - error %x\n", p->szPolicy, hr);
+		ubprintf("SetLGP: Unable to apply %s policy - error %lx", p->szPolicy, hr);
 		goto error;
 	} else {
 		if ((!p->bRestore) || (*(p->bExistingKey))) {
-			uprintf("SetLGP: Successfully %s %s policy to 0x%08X\n", (p->bRestore)?"restored":"set", p->szPolicy, val);
+			ubprintf("SetLGP: Successfully %s %s policy to 0x%08lX", (p->bRestore)?"restored":"set", p->szPolicy, val);
 		} else {
-			uprintf("SetLGP: Successfully removed %s policy key\n", p->szPolicy);
+			ubprintf("SetLGP: Successfully removed %s policy key", p->szPolicy);
 		}
 	}
 
@@ -785,8 +784,10 @@ DWORD WINAPI SetLGPThread(LPVOID param)
 	return TRUE;
 
 error:
-	if (path_key != NULL) RegCloseKey(path_key);
-	if (pLGPO != NULL) pLGPO->lpVtbl->Release(pLGPO);
+	if (path_key != NULL)
+		RegCloseKey(path_key);
+	if (pLGPO != NULL)
+		pLGPO->lpVtbl->Release(pLGPO);
 	return FALSE;
 }
 #pragma pop_macro("INTERFACE")
@@ -798,17 +799,17 @@ BOOL SetLGP(BOOL bRestore, BOOL* bExistingKey, const char* szPath, const char* s
 	HANDLE thread_id;
 
 	if (ReadSettingBool(SETTING_DISABLE_LGP)) {
-		uprintf("LPG handling disabled, per settings");
+		ubprintf("LPG handling disabled, per settings");
 		return FALSE;
 	}
 
 	thread_id = CreateThread(NULL, 0, SetLGPThread, (LPVOID)&params, 0, NULL);
 	if (thread_id == NULL) {
-		uprintf("SetLGP: Unable to start thread");
+		ubprintf("SetLGP: Unable to start thread");
 		return FALSE;
 	}
-	if (WaitForSingleObject(thread_id, 60000) != WAIT_OBJECT_0) {
-		uprintf("SetLGP: Killing stuck thread!");
+	if (WaitForSingleObject(thread_id, 5000) != WAIT_OBJECT_0) {
+		ubprintf("SetLGP: Killing stuck thread!");
 		TerminateThread(thread_id, 0);
 		CloseHandle(thread_id);
 		return FALSE;
@@ -877,8 +878,7 @@ BOOL IsCurrentProcessElevated(void)
 			goto out;
 		}
 		r = (te.TokenIsElevated != 0);
-	}
-	else {
+	} else {
 		uprintf("Note: UAC is either disabled or not available");
 		if (!AllocateAndInitializeSid(&auth, 2, SECURITY_BUILTIN_DOMAIN_RID,
 			DOMAIN_ALIAS_RID_ADMINS, 0, 0, 0, 0, 0, 0, &psid))
@@ -898,14 +898,42 @@ char* GetCurrentMUI(void)
 	static char mui_str[LOCALE_NAME_MAX_LENGTH];
 	wchar_t wmui_str[LOCALE_NAME_MAX_LENGTH];
 
-	// Of course LCIDToLocaleName() is not available on XP... grrrr!
-	PF_INIT(LCIDToLocaleName, kernel32);
-
-	if ( (pfLCIDToLocaleName != NULL) &&
-		 (pfLCIDToLocaleName(GetUserDefaultUILanguage(), wmui_str, LOCALE_NAME_MAX_LENGTH, 0) > 0) ) {
+	if (LCIDToLocaleName(GetUserDefaultUILanguage(), wmui_str, LOCALE_NAME_MAX_LENGTH, 0) > 0) {
 		wchar_to_utf8_no_alloc(wmui_str, mui_str, LOCALE_NAME_MAX_LENGTH);
 	} else {
-		safe_strcpy(mui_str, LOCALE_NAME_MAX_LENGTH, "en-US");
+		static_strcpy(mui_str, "en-US");
 	}
 	return mui_str;
+}
+
+char* GetMuiString(char* szModuleName, UINT uID)
+{
+	HMODULE hModule;
+	char path[MAX_PATH], *str;
+	wchar_t* wstr;
+	void* ptr;
+	int len;
+	static_sprintf(path, "%s\\%s\\%s.mui", system_dir, GetCurrentMUI(), szModuleName);
+	// If the file doesn't exist, fall back to en-US
+	if (!PathFileExistsU(path))
+		static_sprintf(path, "%s\\en-US\\%s.mui", system_dir, szModuleName);
+	hModule = LoadLibraryExA(path, NULL, LOAD_LIBRARY_AS_IMAGE_RESOURCE | LOAD_LIBRARY_AS_DATAFILE);
+	if (hModule == NULL) {
+		uprintf("Could not load '%s': %s", path, WindowsErrorString());
+		return NULL;
+	}
+	// Calling LoadStringW with last parameter 0 returns the length of the string (without NUL terminator)
+	len = LoadStringW(hModule, uID, (LPWSTR)(&ptr), 0);
+	if (len <= 0) {
+		if (GetLastError() == ERROR_SUCCESS)
+			SetLastError(ERROR_RESOURCE_NAME_NOT_FOUND);
+		uprintf("Could not find string ID %d in '%s': %s", uID, path, WindowsErrorString());
+		return NULL;
+	}
+	len += 1;
+	wstr = calloc(len, sizeof(wchar_t));
+	len = LoadStringW(hModule, uID, wstr, len);
+	str = wchar_to_utf8(wstr);
+	free(wstr);
+	return str;
 }

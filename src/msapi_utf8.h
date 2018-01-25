@@ -3,7 +3,7 @@
  * Compensating for what Microsoft should have done a long long time ago.
  * Also see http://utf8everywhere.org/
  *
- * Copyright © 2010-2015 Pete Batard <pete@akeo.ie>
+ * Copyright © 2010-2017 Pete Batard <pete@akeo.ie>
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -31,6 +31,9 @@
 #include <share.h>
 #include <fcntl.h>
 #include <io.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <psapi.h>
 
 #pragma once
 #if defined(_MSC_VER)
@@ -125,10 +128,36 @@ static __inline wchar_t* utf8_to_wchar(const char* str)
 	return wstr;
 }
 
+/*
+* Converts an non NUL-terminated UTF-16 string of length len to UTF8 (allocate returned string)
+* Returns NULL on error
+*/
+static __inline char* wchar_len_to_utf8(const wchar_t* wstr, int wlen)
+{
+	int size = 0;
+	char* str = NULL;
+
+	// Find out the size we need to allocate for our converted string
+	size = WideCharToMultiByte(CP_UTF8, 0, wstr, wlen, NULL, 0, NULL, NULL);
+	if (size <= 1)	// An empty string would be size 1
+		return NULL;
+
+	if ((str = (char*)calloc(size, 1)) == NULL)
+		return NULL;
+
+	if (WideCharToMultiByte(CP_UTF8, 0, wstr, wlen, str, size, NULL, NULL) != size) {
+		sfree(str);
+		return NULL;
+	}
+
+	return str;
+}
+
 static __inline DWORD FormatMessageU(DWORD dwFlags, LPCVOID lpSource, DWORD dwMessageId,
 									 DWORD dwLanguageId, char* lpBuffer, DWORD nSize, va_list *Arguments)
 {
 	DWORD ret = 0, err = ERROR_INVALID_DATA;
+	// coverity[returned_null]
 	walloc(lpBuffer, nSize);
 	ret = FormatMessageW(dwFlags, lpSource, dwMessageId, dwLanguageId, wlpBuffer, nSize, Arguments);
 	err = GetLastError();
@@ -170,6 +199,7 @@ static __inline BOOL SHGetPathFromIDListU(LPCITEMIDLIST pidl, char* pszPath)
 {
 	BOOL ret = FALSE;
 	DWORD err = ERROR_INVALID_DATA;
+	// coverity[returned_null]
 	walloc(pszPath, MAX_PATH);
 	ret = SHGetPathFromIDListW(pidl, wpszPath);
 	err = GetLastError();
@@ -246,6 +276,12 @@ static __inline int LoadStringU(HINSTANCE hInstance, UINT uID, LPSTR lpBuffer, i
 {
 	int ret;
 	DWORD err = ERROR_INVALID_DATA;
+	if (nBufferMax == 0) {
+		// read-only pointer to resource mode is not supported
+		SetLastError(ERROR_INVALID_PARAMETER);
+		return 0;
+	}
+	// coverity[returned_null]
 	walloc(lpBuffer, nBufferMax);
 	ret = LoadStringW(hInstance, uID, wlpBuffer, nBufferMax);
 	err = GetLastError();
@@ -253,6 +289,18 @@ static __inline int LoadStringU(HINSTANCE hInstance, UINT uID, LPSTR lpBuffer, i
 		err = GetLastError();
 	}
 	wfree(lpBuffer);
+	SetLastError(err);
+	return ret;
+}
+
+static __inline HMODULE LoadLibraryU(LPCSTR lpFileName)
+{
+	HMODULE ret;
+	DWORD err = ERROR_INVALID_DATA;
+	wconvert(lpFileName);
+	ret = LoadLibraryW(wlpFileName);
+	err = GetLastError();
+	wfree(lpFileName);
 	SetLastError(err);
 	return ret;
 }
@@ -273,6 +321,7 @@ static __inline int GetWindowTextU(HWND hWnd, char* lpString, int nMaxCount)
 {
 	int ret = 0;
 	DWORD err = ERROR_INVALID_DATA;
+	// coverity[returned_null]
 	walloc(lpString, nMaxCount);
 	ret = GetWindowTextW(hWnd, wlpString, nMaxCount);
 	err = GetLastError();
@@ -332,6 +381,7 @@ static __inline UINT GetDlgItemTextU(HWND hDlg, int nIDDlgItem, char* lpString, 
 {
 	UINT ret = 0;
 	DWORD err = ERROR_INVALID_DATA;
+	// coverity[returned_null]
 	walloc(lpString, nMaxCount);
 	ret = GetDlgItemTextW(hDlg, nIDDlgItem, wlpString, nMaxCount);
 	err = GetLastError();
@@ -428,6 +478,15 @@ static __inline BOOL DeleteFileU(const char* lpFileName)
 	return ret;
 }
 
+static __inline BOOL PathFileExistsU(char* szPath)
+{
+	BOOL ret;
+	wconvert(szPath);
+	ret = PathFileExistsW(wszPath);
+	wfree(szPath);
+	return ret;
+}
+
 static __inline int PathGetDriveNumberU(char* lpPath)
 {
 	int ret = 0;
@@ -458,6 +517,7 @@ static __inline BOOL GetTextExtentPointU(HDC hdc, const char* lpString, LPSIZE l
 static __inline DWORD GetCurrentDirectoryU(DWORD nBufferLength, char* lpBuffer)
 {
 	DWORD ret = 0, err = ERROR_INVALID_DATA;
+	// coverity[returned_null]
 	walloc(lpBuffer, nBufferLength);
 	ret = GetCurrentDirectoryW(nBufferLength, wlpBuffer);
 	err = GetLastError();
@@ -472,6 +532,7 @@ static __inline DWORD GetCurrentDirectoryU(DWORD nBufferLength, char* lpBuffer)
 static __inline UINT GetSystemDirectoryU(char* lpBuffer, UINT uSize)
 {
 	UINT ret = 0, err = ERROR_INVALID_DATA;
+	// coverity[returned_null]
 	walloc(lpBuffer, uSize);
 	ret = GetSystemDirectoryW(wlpBuffer, uSize);
 	err = GetLastError();
@@ -486,6 +547,7 @@ static __inline UINT GetSystemDirectoryU(char* lpBuffer, UINT uSize)
 static __inline UINT GetSystemWindowsDirectoryU(char* lpBuffer, UINT uSize)
 {
 	UINT ret = 0, err = ERROR_INVALID_DATA;
+	// coverity[returned_null]
 	walloc(lpBuffer, uSize);
 	ret = GetSystemWindowsDirectoryW(wlpBuffer, uSize);
 	err = GetLastError();
@@ -500,6 +562,7 @@ static __inline UINT GetSystemWindowsDirectoryU(char* lpBuffer, UINT uSize)
 static __inline DWORD GetTempPathU(DWORD nBufferLength, char* lpBuffer)
 {
 	DWORD ret = 0, err = ERROR_INVALID_DATA;
+	// coverity[returned_null]
 	walloc(lpBuffer, nBufferLength);
 	ret = GetTempPathW(nBufferLength, wlpBuffer);
 	err = GetLastError();
@@ -516,6 +579,7 @@ static __inline DWORD GetTempFileNameU(char* lpPathName, char* lpPrefixString, U
 	DWORD ret = 0, err = ERROR_INVALID_DATA;
 	wconvert(lpPathName);
 	wconvert(lpPrefixString);
+	// coverity[returned_null]
 	walloc(lpTempFileName, MAX_PATH);
 	ret = GetTempFileNameW(wlpPathName, wlpPrefixString, uUnique, wlpTempFileName);
 	err = GetLastError();
@@ -532,10 +596,27 @@ static __inline DWORD GetTempFileNameU(char* lpPathName, char* lpPrefixString, U
 static __inline DWORD GetModuleFileNameU(HMODULE hModule, char* lpFilename, DWORD nSize)
 {
 	DWORD ret = 0, err = ERROR_INVALID_DATA;
+	// coverity[returned_null]
 	walloc(lpFilename, nSize);
 	ret = GetModuleFileNameW(hModule, wlpFilename, nSize);
 	err = GetLastError();
 	if ((ret != 0) && ((ret = wchar_to_utf8_no_alloc(wlpFilename, lpFilename, nSize)) == 0)) {
+		err = GetLastError();
+	}
+	wfree(lpFilename);
+	SetLastError(err);
+	return ret;
+}
+
+static __inline DWORD GetModuleFileNameExU(HANDLE hProcess, HMODULE hModule, char* lpFilename, DWORD nSize)
+{
+	DWORD ret = 0, err = ERROR_INVALID_DATA;
+	// coverity[returned_null]
+	walloc(lpFilename, nSize);
+	ret = GetModuleFileNameExW(hProcess, hModule, wlpFilename, nSize);
+	err = GetLastError();
+	if ((ret != 0)
+		&& ((ret = wchar_to_utf8_no_alloc(wlpFilename, lpFilename, nSize)) == 0)) {
 		err = GetLastError();
 	}
 	wfree(lpFilename);
@@ -548,6 +629,7 @@ static __inline DWORD GetFullPathNameU(const char* lpFileName, DWORD nBufferLeng
 	DWORD ret = 0, err = ERROR_INVALID_DATA;
 	wchar_t* wlpFilePart;
 	wconvert(lpFileName);
+	// coverity[returned_null]
 	walloc(lpBuffer, nBufferLength);
 
 	// lpFilePart is not supported
@@ -595,6 +677,7 @@ static __inline int SHDeleteDirectoryExU(HWND hwnd, const char* pszPath, FILEOP_
 	// String needs to be double NULL terminated, so we just use the length of the UTF-8 string
 	// which is always expected to be larger than our UTF-16 one, and add 2 chars for good measure.
 	size_t wpszPath_len = strlen(pszPath) + 2;
+	// coverity[returned_null]
 	walloc(pszPath, wpszPath_len);
 	SHFILEOPSTRUCTW shfo = { hwnd, FO_DELETE, wpszPath, NULL, fFlags, FALSE, NULL, NULL };
 	utf8_to_wchar_no_alloc(pszPath, wpszPath, (int)wpszPath_len);
@@ -788,6 +871,7 @@ static __inline BOOL SetupCopyOEMInfU(const char* SourceInfFileName, const char*
 	DWORD err = ERROR_INVALID_DATA;
 	wconvert(SourceInfFileName);
 	wconvert(OEMSourceMediaLocation);
+	// coverity[returned_null]
 	walloc(DestinationInfFileName, DestinationInfFileNameSize);
 
 	// DestinationInfFileNameComponent is not supported
@@ -864,6 +948,24 @@ static __inline int _openU(const char *filename, int oflag , int pmode)
 }
 #endif
 
+static __inline int _unlinkU(const char *path)
+{
+	int ret;
+	wconvert(path);
+	ret = _wunlink(wpath);
+	wfree(path);
+	return ret;
+}
+
+static __inline int _stat64U(const char *path, struct __stat64 *buffer)
+{
+	int ret;
+	wconvert(path);
+	ret = _wstat64(wpath, buffer);
+	wfree(path);
+	return ret;
+}
+
 // returned UTF-8 string must be freed
 static __inline char* getenvU(const char* varname)
 {
@@ -898,6 +1000,7 @@ static __inline BOOL SetupDiGetDeviceRegistryPropertyU(HDEVINFO DeviceInfoSet, P
 {
 	BOOL ret = FALSE;
 	DWORD err = ERROR_INVALID_DATA;
+	// coverity[returned_null]
 	walloc(PropertyBuffer, PropertyBufferSize);
 
 	ret = SetupDiGetDeviceRegistryPropertyW(DeviceInfoSet, DeviceInfoData, Property,
@@ -920,7 +1023,9 @@ static __inline BOOL GetVolumeInformationU(LPCSTR lpRootPathName, LPSTR lpVolume
 	BOOL ret = FALSE;
 	DWORD err = ERROR_INVALID_DATA;
 	wconvert(lpRootPathName);
+	// coverity[returned_null]
 	walloc(lpVolumeNameBuffer, nVolumeNameSize);
+	// coverity[returned_null]
 	walloc(lpFileSystemNameBuffer, nFileSystemNameSize);
 
 	ret = GetVolumeInformationW(wlpRootPathName, wlpVolumeNameBuffer, nVolumeNameSize,
@@ -941,15 +1046,6 @@ static __inline BOOL GetVolumeInformationU(LPCSTR lpRootPathName, LPSTR lpVolume
 	wfree(lpRootPathName);
 	SetLastError(err);
 	return ret;
-}
-
-static __inline HMODULE LoadLibraryU(LPCSTR lpFileName)
-{
-	HMODULE h;
-	wconvert(lpFileName);
-	h = LoadLibraryW(wlpFileName);
-	wfree(lpFileName);
-	return h;
 }
 
 #ifdef __cplusplus

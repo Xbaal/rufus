@@ -110,7 +110,7 @@ static BOOL Get7ZipPath(void)
 {
 	if ( (GetRegistryKeyStr(REGKEY_HKCU, "7-Zip\\Path", sevenzip_path, sizeof(sevenzip_path)))
 	  || (GetRegistryKeyStr(REGKEY_HKLM, "7-Zip\\Path", sevenzip_path, sizeof(sevenzip_path))) ) {
-		safe_strcat(sevenzip_path, sizeof(sevenzip_path), "\\7z.exe");
+		static_strcat(sevenzip_path, "\\7z.exe");
 		return (_access(sevenzip_path, 0) != -1);
 	}
 	return FALSE;
@@ -293,19 +293,19 @@ BOOL IsBootableImage(const char* path)
 		uprintf("  Could not get image size: %s", WindowsErrorString());
 		goto out;
 	}
-	img_report.projected_size = (uint64_t)liImageSize.QuadPart;
+	img_report.image_size = (uint64_t)liImageSize.QuadPart;
 
 	size = sizeof(vhd_footer);
-	if ((img_report.compression_type == BLED_COMPRESSION_NONE) && (img_report.projected_size >= (512 + size))) {
+	if ((img_report.compression_type == BLED_COMPRESSION_NONE) && (img_report.image_size >= (512 + size))) {
 		footer = (vhd_footer*)malloc(size);
-		ptr.QuadPart = img_report.projected_size - size;
+		ptr.QuadPart = img_report.image_size - size;
 		if ( (footer == NULL) || (!SetFilePointerEx(handle, ptr, NULL, FILE_BEGIN)) ||
 			 (!ReadFile(handle, footer, size, &size, NULL)) || (size != sizeof(vhd_footer)) ) {
 			uprintf("  Could not read VHD footer");
 			goto out;
 		}
 		if (memcmp(footer->cookie, conectix_str, sizeof(footer->cookie)) == 0) {
-			img_report.projected_size -= sizeof(vhd_footer);
+			img_report.image_size -= sizeof(vhd_footer);
 			if ( (bswap_uint32(footer->file_format_version) != VHD_FOOTER_FILE_FORMAT_V1_0)
 			  || (bswap_uint32(footer->disk_type) != VHD_FOOTER_TYPE_FIXED_HARD_DISK)) {
 				uprintf("  Unsupported type of VHD image");
@@ -471,11 +471,11 @@ BOOL WimExtractFile_7z(const char* image, int index, const char* src, const char
 	// return an error code if it can't extract the file), we need
 	// to issue 2 passes. See github issue #680.
 	for (n = 0; n < 2; n++) {
-		safe_strcpy(tmpdst, sizeof(tmpdst), dst);
+		static_strcpy(tmpdst, dst);
 		for (i = strlen(tmpdst) - 1; (i > 0) && (tmpdst[i] != '\\') && (tmpdst[i] != '/'); i--);
 		tmpdst[i] = 0;
 
-		safe_sprintf(cmdline, sizeof(cmdline), "\"%s\" -y e \"%s\" %s%s", sevenzip_path,
+		static_sprintf(cmdline, "\"%s\" -y e \"%s\" %s%s", sevenzip_path,
 			image, (n == 0) ? index_prefix : "", src);
 		if (RunCommand(cmdline, tmpdst, FALSE) != 0) {
 			uprintf("  Could not launch 7z.exe: %s", WindowsErrorString());
@@ -484,8 +484,8 @@ BOOL WimExtractFile_7z(const char* image, int index, const char* src, const char
 
 		for (i = safe_strlen(src); (i > 0) && (src[i] != '\\') && (src[i] != '/'); i--);
 		if (i == 0)
-			safe_strcat(tmpdst, sizeof(tmpdst), "\\");
-		safe_strcat(tmpdst, sizeof(tmpdst), &src[i]);
+			static_strcat(tmpdst, "\\");
+		static_strcat(tmpdst, &src[i]);
 		if (_access(tmpdst, 0) == 0)
 			// File was extracted => move on
 			break;
@@ -590,12 +590,12 @@ DWORD WINAPI WimProgressCallback(DWORD dwMsgId, WPARAM wParam, LPARAM lParam, PV
 			wim_nb_files++;
 		} else {
 			wim_proc_files++;
-			if (_GetTickCount64() > LastRefresh + 100) {
+			if (GetTickCount64() > LastRefresh + 100) {
 				// At the end of an actual apply, the WIM API re-lists a bunch of directories it
 				// already processed, so we end up with more entries than counted - ignore those.
 				if (wim_proc_files > wim_nb_files)
 					wim_proc_files = wim_nb_files;
-				LastRefresh = _GetTickCount64();
+				LastRefresh = GetTickCount64();
 				// x^3 progress, so as not to give a better idea right from the onset
 				// as to the dismal speed with which the WIM API can actually apply files...
 				apply_percent = 4.636942595f * ((float)wim_proc_files) / ((float)wim_nb_files);
@@ -614,8 +614,12 @@ DWORD WINAPI WimProgressCallback(DWORD dwMsgId, WPARAM wParam, LPARAM lParam, PV
 	case WIM_MSG_FILEINFO:
 		str = wchar_to_utf8((PWSTR)wParam);
 		pFileData = (PWIN32_FIND_DATA)lParam;
-		size = (((uint64_t)pFileData->nFileSizeHigh) << 32) + pFileData->nFileSizeLow;
-		uprintf("'%s' (%s)", str, SizeToHumanReadable(size, FALSE, FALSE));
+		if (pFileData->dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+			uprintf("Creating: %s", str);
+		} else {
+			size = (((uint64_t)pFileData->nFileSizeHigh) << 32) + pFileData->nFileSizeLow;
+			uprintf("Extracting: %s (%s)", str, SizeToHumanReadable(size, FALSE, FALSE));
+		}
 		break;
 	case WIM_MSG_RETRY:
 		level = "retry";
@@ -700,7 +704,7 @@ static DWORD WINAPI WimApplyImageThread(LPVOID param)
 	}
 	count_files = FALSE;
 	// Actual apply
-	if (!pfWIMApplyImage(hImage, wdst, 0)) {
+	if (!pfWIMApplyImage(hImage, wdst, WIM_FLAG_FILEINFO)) {
 		uprintf("  Could not apply image: %s", WindowsErrorString());
 		goto out;
 	}
